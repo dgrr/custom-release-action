@@ -91,29 +91,23 @@ func main() {
 		}
 	}
 
-	// else {
-	// 		newVersion := version.Must(version.NewVersion("0.1.0-alpha"))
-	// 		gha.Infof("No version assigned. Will release a new version: %s", newVersion)
-	// 		versions = append(versions, VersionAndTag{
-	// 			Version: newVersion,
-	// 		})
-	// 	}
-
 	newVersion, oldVersion := reconcileVersions(ctx, prs, versions)
 	if newVersion == nil {
 		gha.Infof("No version returned based of off %s, ignoring", ctx.RefName)
 	} else {
+		// TODO:
 		// msg, err := buildVersionSummary(c, prevTag, owner, repo)
 		// if err != nil {
 		// 	gha.Fatalf("making summary: %v", err)
 		// }
+
 		gha.Infof("Creating release %s", newVersion)
 		rel, err := createOrGetRelease(c, owner, repo, gitea.CreateReleaseOption{
 			TagName:      newVersion.String(),
 			IsPrerelease: len(newVersion.Prerelease()) != 0,
 			Title:        newVersion.String(),
 			Target:       ctx.SHA,
-			Note:         "IDK",
+			Note:         newVersion.String(),
 		})
 		if err != nil {
 			gha.Fatalf("failed to create release: %v", err)
