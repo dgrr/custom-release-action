@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/sha1"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -109,6 +111,21 @@ func main() {
 			note = string(data)
 		}
 
+		matchedFiles, err := getFiles(ctx.Workspace, files)
+		if err != nil {
+			gha.Fatalf("failed to get files: %v", err)
+		}
+
+		hashes, err := getFileHashes(matchedFiles)
+		if err != nil {
+			gha.Infof("Unable to get hashes: %s", err)
+		} else {
+			note += "\n\n"
+			for i := range hashes {
+				note += fmt.Sprintf("%s: %s\n", matchedFiles[i], hashes[i])
+			}
+		}
+
 		gha.Infof("Creating release %s", newVersion)
 		rel, err := createOrGetRelease(c, owner, repo, gitea.CreateReleaseOption{
 			TagName:      newVersion.String(),
@@ -119,11 +136,6 @@ func main() {
 		})
 		if err != nil {
 			gha.Fatalf("failed to create release: %v", err)
-		}
-
-		matchedFiles, err := getFiles(ctx.Workspace, files)
-		if err != nil {
-			gha.Fatalf("failed to get files: %v", err)
 		}
 
 		gha.Infof("Uploading files to %s", rel.TagName)
@@ -148,6 +160,30 @@ func main() {
 	}
 
 	gha.SetOutput("status", "success")
+}
+
+func getFileHashes(files []string) ([]string, error) {
+	hashes := make([]string, 0)
+	for _, file := range files {
+		f, err := os.Open(file)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open release attachment %s: %w", file, err)
+		}
+
+		h := sha1.New()
+
+		_, err = io.Copy(h, f)
+		if err != nil {
+			return nil, err
+		}
+
+		// Get the SHA1 sum
+		sum := h.Sum(nil)
+
+		hashes = append(hashes, fmt.Sprintf("%x", sum))
+	}
+
+	return hashes, nil
 }
 
 func reconcileVersions(ctx *gha.GitHubContext, prs []*gitea.PullRequest, versions []VersionAndTag) (*version.Version, *version.Version) {
@@ -455,7 +491,7 @@ func createOrGetRelease(c *gitea.Client, owner, repo string, opts gitea.CreateRe
 	if resp.StatusCode != 404 {
 		return nil, errMessage
 	}
-	fmt.Printf("%s trying to create it\n", errMessage)
+	gha.Infof("%s trying to create it", errMessage)
 	// Create the release
 	release, _, err = c.CreateRelease(owner, repo, opts)
 	if err != nil {
@@ -483,7 +519,7 @@ func uploadFiles(c *gitea.Client, owner, repo string, releaseID int64, files []s
 					return fmt.Errorf("failed to delete release attachment %s: %w", file, err)
 				}
 
-				fmt.Printf("Successfully deleted old release attachment %s\n", attachment.Name)
+				gha.Infof("Successfully deleted old release attachment %s", attachment.Name)
 			}
 		}
 
@@ -493,7 +529,7 @@ func uploadFiles(c *gitea.Client, owner, repo string, releaseID int64, files []s
 		}
 		f.Close()
 
-		fmt.Printf("Successfully uploaded release attachment %s\n", file)
+		gha.Infof("Successfully uploaded release attachment %s", file)
 	}
 
 	return nil
