@@ -111,7 +111,7 @@ func main() {
 		gha.Infof("Creating release %s", newVersion)
 		rel, err := createOrGetRelease(c, owner, repo, gitea.CreateReleaseOption{
 			TagName:      newVersion.String(),
-			IsPrerelease: len(newVersion.Prerelease()) != 0,
+			IsPrerelease: len(newVersion.Prerelease()) != 0 || len(newVersion.Metadata()) != 0,
 			Title:        newVersion.String(),
 			Target:       ctx.SHA,
 			Note:         note,
