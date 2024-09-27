@@ -122,7 +122,7 @@ func main() {
 		} else {
 			note += "\n\n"
 			for i := range hashes {
-				note += fmt.Sprintf("%s: %s\n", matchedFiles[i], hashes[i])
+				note += fmt.Sprintf("%s: %s\n", filepath.Base(matchedFiles[i]), hashes[i])
 			}
 		}
 
