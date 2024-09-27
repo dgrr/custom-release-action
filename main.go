@@ -101,13 +101,20 @@ func main() {
 		// 	gha.Fatalf("making summary: %v", err)
 		// }
 
+		note := newVersion.String()
+
+		data, _, err := c.GetFile(owner, repo, ctx.Ref, "CHANGELOG.md")
+		if err == nil {
+			note = string(data)
+		}
+
 		gha.Infof("Creating release %s", newVersion)
 		rel, err := createOrGetRelease(c, owner, repo, gitea.CreateReleaseOption{
 			TagName:      newVersion.String(),
 			IsPrerelease: len(newVersion.Prerelease()) != 0,
 			Title:        newVersion.String(),
 			Target:       ctx.SHA,
-			Note:         newVersion.String(),
+			Note:         note,
 		})
 		if err != nil {
 			gha.Fatalf("failed to create release: %v", err)
