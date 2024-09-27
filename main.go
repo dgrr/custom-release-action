@@ -269,7 +269,8 @@ func reconcileVersions(ctx *gha.GitHubContext, prs []*gitea.PullRequest, version
 }
 
 func normalizeBranchName(orig string) string {
-	return strings.ReplaceAll(orig, "/", "-")
+	s := strings.ReplaceAll(orig, "/", "-")
+	return strings.ReplaceAll(s, "_", "-")
 }
 
 func increaseVersion(v *version.Version) *version.Version {
