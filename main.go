@@ -105,7 +105,8 @@ func main() {
 
 		data, _, err := c.GetFile(owner, repo, ctx.Ref, "CHANGELOG.md")
 		if err == nil {
-			note = string(data)
+			gha.Infof("Found CHANGELOG. Including")
+			note = fmt.Sprintf("## %s\n\n%s", newVersion, data)
 		}
 
 		gha.Infof("Creating release %s", newVersion)
