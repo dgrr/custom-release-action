@@ -87,7 +87,7 @@ func main() {
 	if len(versions) != 0 {
 		gha.Infof("Existing versions:")
 		for i := range versions {
-			gha.Infof("  - %s", versions[i])
+			gha.Infof("  - %s", versions[i].Version)
 		}
 	}
 
