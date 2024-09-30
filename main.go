@@ -291,7 +291,7 @@ func reconcileVersions(ctx *gha.GitHubContext, prs []*gitea.PullRequest, version
 
 		// not a new version, someone pushed to a branch
 		// a version must exist if someone has a branch
-		branchName := strings.ReplaceAll(refName, "/", "-")
+		branchName := normalizeBranchName(refName)
 		gha.Infof("Committed to a branch, releasing a new version with branch metadata: %s", branchName)
 
 		// look for a version containing the branch name
@@ -313,8 +313,8 @@ func reconcileVersions(ctx *gha.GitHubContext, prs []*gitea.PullRequest, version
 }
 
 func normalizeBranchName(orig string) string {
-	s := strings.ReplaceAll(orig, "/", "-")
-	return strings.ReplaceAll(s, "_", "-")
+	replacer := strings.NewReplacer("_", "-", "/", "-")
+	return replacer.Replace(orig)
 }
 
 func increaseVersion(v *version.Version) *version.Version {
@@ -334,15 +334,6 @@ func increaseVersion(v *version.Version) *version.Version {
 			fmt.Sprintf("%d.%d.%d", segments[0], segments[1], segments[2]),
 		),
 	)
-}
-
-func buildBranchName(ctx *gha.GitHubContext, tag *gitea.Tag) string {
-	if ctx.RefName == "master" || ctx.RefName == "main" || ctx.RefName == tag.Name {
-		return ""
-	}
-
-	replacer := strings.NewReplacer("-", "_", "/", "_")
-	return replacer.Replace(ctx.RefName)
 }
 
 func buildVersionSummary(c *gitea.Client, prevTag *gitea.Tag, owner, repo string) (string, error) {
