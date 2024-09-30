@@ -154,6 +154,10 @@ func main() {
 			if err != nil {
 				gha.Fatalf("unable to delete release %s: %s", oldVersion, err)
 			}
+
+			if _, err := c.DeleteTag(owner, repo, release.TagName); err != nil {
+				gha.Fatalf("failed to delete the tag %s: %w", release.TagName)
+			}
 		} else {
 			gha.Infof("No old version present")
 		}
@@ -507,7 +511,7 @@ func uploadFiles(c *gitea.Client, owner, repo string, releaseID int64, files []s
 			if attachment.Name == filepath.Base(file) {
 				if _, err := c.DeleteReleaseAttachment(owner, repo, releaseID, attachment.ID); err != nil {
 					f.Close()
-					return fmt.Errorf("failed to delete release attachment %s: %w", file, err)
+					return fmt.Errorf("failed to delete release attachment %s: %w", attachment.Name, err)
 				}
 
 				gha.Infof("Successfully deleted old release attachment %s", attachment.Name)
