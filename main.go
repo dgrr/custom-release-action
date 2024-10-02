@@ -330,7 +330,6 @@ func increaseVersion(v *version.Version) *version.Version {
 		}
 
 		segments[i] = 0
-		segments[i-1] += 1
 	}
 
 	return version.Must(
