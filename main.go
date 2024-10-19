@@ -129,7 +129,7 @@ func main() {
 		}
 
 		gha.Infof("Creating release %s", newVersion)
-		releaseMsg = fmt.Sprintf("Version %s has been released", newVersion)
+		releaseMsg = fmt.Sprintf("Version `%s` has been released", newVersion)
 
 		rel, err := createOrGetRelease(c, owner, repo, gitea.CreateReleaseOption{
 			TagName:      newVersion.String(),
