@@ -93,6 +93,8 @@ func main() {
 		}
 	}
 
+	releaseMsg := "Nothing happened :)"
+
 	newVersion, oldVersion := reconcileVersions(ctx, prs, versions)
 	if newVersion == nil {
 		gha.Infof("No version returned based of off %s, ignoring", ctx.RefName)
@@ -127,6 +129,8 @@ func main() {
 		}
 
 		gha.Infof("Creating release %s", newVersion)
+		releaseMsg = fmt.Sprintf("Version %s has been released", newVersion)
+
 		rel, err := createOrGetRelease(c, owner, repo, gitea.CreateReleaseOption{
 			TagName:      newVersion.String(),
 			IsPrerelease: len(newVersion.Prerelease()) != 0 || len(newVersion.Metadata()) != 0,
@@ -166,6 +170,7 @@ func main() {
 	}
 
 	gha.SetOutput("status", "success")
+	gha.SetOutput("message", releaseMsg)
 }
 
 func getFileHashes(files []string) ([]string, error) {
