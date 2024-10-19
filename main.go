@@ -143,7 +143,9 @@ func main() {
 			gha.Fatalf("Failed to upload files: %v", err)
 		}
 
-		if oldVersion != nil {
+		if oldVersion == nil {
+			gha.Infof("No old version present")
+		} else {
 			gha.Infof("Trying to remove old version %s", oldVersion)
 			release, _, err := c.GetReleaseByTag(owner, repo, oldVersion.String())
 			if err != nil {
@@ -158,9 +160,9 @@ func main() {
 			if _, err := c.DeleteTag(owner, repo, release.TagName); err != nil {
 				gha.Fatalf("failed to delete the tag %s: %w", release.TagName)
 			}
-		} else {
-			gha.Infof("No old version present")
 		}
+
+		gha.SetOutput("release", newVersion.String())
 	}
 
 	gha.SetOutput("status", "success")
