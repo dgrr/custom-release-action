@@ -483,6 +483,10 @@ func createOrGetRelease(c *gitea.Client, owner, repo string, opts gitea.CreateRe
 			return nil, err
 		}
 
+		if _, err := c.DeleteTag(owner, repo, opts.TagName); err != nil {
+			return nil, err
+		}
+
 		// release, _, err := c.EditRelease(owner, repo, release.ID, gitea.EditReleaseOption{
 		// 	TagName:      opts.TagName,
 		// 	Target:       opts.Target,
