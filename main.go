@@ -131,7 +131,9 @@ func main() {
 		gha.Infof("Creating release %s", newVersion)
 		releaseMsg = fmt.Sprintf("Version `%s` has been released", newVersion)
 
-		rel, err := createOrGetRelease(c, owner, repo, gitea.CreateReleaseOption{
+		deletePreviousTag := true
+		// deletePreviousTag := len(matchedFiles) == 0
+		rel, err := createOrGetRelease(c, owner, repo, deletePreviousTag, gitea.CreateReleaseOption{
 			TagName:      newVersion.String(),
 			IsPrerelease: len(newVersion.Prerelease()) != 0 || len(newVersion.Metadata()) != 0,
 			Title:        newVersion.String(),
@@ -474,10 +476,22 @@ func getFiles(parentDir, files string) ([]string, error) {
 	return fileList, nil
 }
 
-func createOrGetRelease(c *gitea.Client, owner, repo string, opts gitea.CreateReleaseOption) (*gitea.Release, error) {
+func createOrGetRelease(c *gitea.Client, owner, repo string, deletePreviousTag bool, opts gitea.CreateReleaseOption) (*gitea.Release, error) {
 	// Get the release by tag
 	release, _, err := c.GetReleaseByTag(owner, repo, opts.TagName)
 	if err == nil {
+		if !deletePreviousTag {
+			release, _, err := c.EditRelease(owner, repo, release.ID, gitea.EditReleaseOption{
+				TagName:      opts.TagName,
+				Target:       opts.Target,
+				Title:        opts.Title,
+				Note:         opts.Note,
+				IsDraft:      &opts.IsDraft,
+				IsPrerelease: &opts.IsPrerelease,
+			})
+			return release, err
+		}
+
 		gha.Infof("Removing tag %s", opts.TagName)
 
 		// Delete the tag if already exists
@@ -488,19 +502,9 @@ func createOrGetRelease(c *gitea.Client, owner, repo string, opts gitea.CreateRe
 		if _, err := c.DeleteTag(owner, repo, opts.TagName); err != nil {
 			return nil, err
 		}
-
-		// release, _, err := c.EditRelease(owner, repo, release.ID, gitea.EditReleaseOption{
-		// 	TagName:      opts.TagName,
-		// 	Target:       opts.Target,
-		// 	Title:        opts.Title,
-		// 	Note:         opts.Note,
-		// 	IsDraft:      &opts.IsDraft,
-		// 	IsPrerelease: &opts.IsPrerelease,
-		// })
-		// return release, err
+	} else {
+		gha.Infof("%s trying to create it", opts.TagName)
 	}
-
-	gha.Infof("%s trying to create it")
 
 	// Create the release
 	release, _, err = c.CreateRelease(owner, repo, opts)
