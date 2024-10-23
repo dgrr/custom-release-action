@@ -479,32 +479,19 @@ func createOrGetRelease(c *gitea.Client, owner, repo string, opts gitea.CreateRe
 	release, resp, err := c.GetReleaseByTag(owner, repo, opts.TagName)
 	if err == nil {
 		// Delete the tag if already exists
-		// if _, err := c.DeleteReleaseByTag(owner, repo, opts.TagName); err != nil {
-		// 	return nil, err
-		// }
-
-		if _, err := c.DeleteTag(owner, repo, opts.TagName); err != nil {
+		if _, err := c.DeleteReleaseByTag(owner, repo, opts.TagName); err != nil {
 			return nil, err
 		}
 
-		tag, _, err := c.CreateTag(owner, repo, gitea.CreateTagOption{
-			TagName: opts.TagName,
-			Target:  opts.Target,
-		})
-		if err != nil {
-			return nil, err
-		}
-		_ = tag
-
-		release, _, err := c.EditRelease(owner, repo, release.ID, gitea.EditReleaseOption{
-			TagName:      opts.TagName,
-			Target:       opts.Target,
-			Title:        opts.Title,
-			Note:         opts.Note,
-			IsDraft:      &opts.IsDraft,
-			IsPrerelease: &opts.IsPrerelease,
-		})
-		return release, err
+		// release, _, err := c.EditRelease(owner, repo, release.ID, gitea.EditReleaseOption{
+		// 	TagName:      opts.TagName,
+		// 	Target:       opts.Target,
+		// 	Title:        opts.Title,
+		// 	Note:         opts.Note,
+		// 	IsDraft:      &opts.IsDraft,
+		// 	IsPrerelease: &opts.IsPrerelease,
+		// })
+		// return release, err
 	}
 
 	errMessage := fmt.Errorf("failed to get release for tag: %s with error: %w", opts.TagName, err)
