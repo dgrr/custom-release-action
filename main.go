@@ -478,6 +478,8 @@ func createOrGetRelease(c *gitea.Client, owner, repo string, opts gitea.CreateRe
 	// Get the release by tag
 	release, resp, err := c.GetReleaseByTag(owner, repo, opts.TagName)
 	if err == nil {
+		gha.Infof("Removing tag %s", opts.TagName)
+
 		// Delete the tag if already exists
 		if _, err := c.DeleteReleaseByTag(owner, repo, opts.TagName); err != nil {
 			return nil, err
