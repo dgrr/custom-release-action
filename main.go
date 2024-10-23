@@ -476,7 +476,7 @@ func getFiles(parentDir, files string) ([]string, error) {
 
 func createOrGetRelease(c *gitea.Client, owner, repo string, opts gitea.CreateReleaseOption) (*gitea.Release, error) {
 	// Get the release by tag
-	release, resp, err := c.GetReleaseByTag(owner, repo, opts.TagName)
+	release, _, err := c.GetReleaseByTag(owner, repo, opts.TagName)
 	if err == nil {
 		gha.Infof("Removing tag %s", opts.TagName)
 
