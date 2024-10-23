@@ -128,8 +128,10 @@ func main() {
 			}
 		}
 
+		note += fmt.Sprintf("\n\nCommit: %s", ctx.SHA)
+
 		gha.Infof("Creating release %s", newVersion)
-		releaseMsg = fmt.Sprintf("Version `%s` has been released", newVersion)
+		releaseMsg = fmt.Sprintf("Version `%s` has been released (%s)", newVersion, ctx.SHA)
 
 		deletePreviousTag := true
 		// deletePreviousTag := len(matchedFiles) == 0
