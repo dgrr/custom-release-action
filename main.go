@@ -500,17 +500,12 @@ func createOrGetRelease(c *gitea.Client, owner, repo string, opts gitea.CreateRe
 		// return release, err
 	}
 
-	errMessage := fmt.Errorf("failed to get release for tag: %s with error: %w", opts.TagName, err)
-	if resp.StatusCode != 404 {
-		return nil, errMessage
-	}
-
-	gha.Infof("%s trying to create it", errMessage)
+	gha.Infof("%s trying to create it")
 
 	// Create the release
 	release, _, err = c.CreateRelease(owner, repo, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create release: %w and %s", err, errMessage)
+		return nil, fmt.Errorf("failed to create release: %w", err)
 	}
 
 	return release, nil
