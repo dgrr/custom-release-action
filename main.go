@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -237,6 +238,11 @@ func reconcileVersions(ctx *gha.GitHubContext, prs []*gitea.PullRequest, version
 			gha.Infof("No existing version, creating one")
 			return version.Must(version.NewVersion("0.1.0-alpha")), nil
 		}
+
+		// leave only the stable versions
+		versions = slices.DeleteFunc(versions, func(version VersionAndTag) bool {
+			return len(version.Version.Metadata()) == 0
+		})
 
 		lastVersion := versions[len(versions)-1]
 		if len(lastVersion.Version.Prerelease()) != 0 {
