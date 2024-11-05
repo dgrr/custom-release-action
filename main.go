@@ -243,7 +243,7 @@ func reconcileVersions(ctx *gha.GitHubContext, prs []*gitea.PullRequest, version
 
 		// leave only the stable versions
 		versions = slices.DeleteFunc(versions, func(version VersionAndTag) bool {
-			return len(version.Version.Metadata()) == 0
+			return len(version.Version.Metadata()) != 0
 		})
 
 		gha.Infof("After removing branched versions %v", versions)
