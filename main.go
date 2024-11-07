@@ -232,6 +232,11 @@ func reconcileVersions(ctx *gha.GitHubContext, prs []*gitea.PullRequest, version
 		}
 	}
 
+	// leave only the stable versions
+	versions = slices.DeleteFunc(versions, func(version VersionAndTag) bool {
+		return len(version.Version.Metadata()) != 0
+	})
+
 	switch refName {
 	case "master", "main":
 		if len(versions) == 0 {
@@ -240,11 +245,6 @@ func reconcileVersions(ctx *gha.GitHubContext, prs []*gitea.PullRequest, version
 		}
 
 		gha.Infof("Removing branched versions from %v", versions)
-
-		// leave only the stable versions
-		versions = slices.DeleteFunc(versions, func(version VersionAndTag) bool {
-			return len(version.Version.Metadata()) != 0
-		})
 
 		gha.Infof("After removing branched versions %v", versions)
 
