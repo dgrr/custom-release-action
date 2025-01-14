@@ -14,6 +14,10 @@ import (
 	"time"
 
 	"code.gitea.io/sdk/gitea"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/hashicorp/go-version"
 	gha "github.com/sethvargo/go-githubactions"
 )
@@ -23,6 +27,13 @@ type VersionAndTag struct {
 	Tag     *gitea.Tag
 }
 
+type S3Config struct {
+	Region    string
+	Bucket    string
+	AccessKey string
+	SecretKey string
+}
+
 func main() {
 	ctx, err := gha.Context()
 	if err != nil {
@@ -30,11 +41,26 @@ func main() {
 	}
 
 	// ctx.RefName is the branch name, which could be a branch or master, or the tag version
-
 	files := gha.GetInput("files")
 	apiKey := gha.GetInput("api_key")
 	if apiKey == "" {
 		apiKey = os.Getenv("GITHUB_TOKEN")
+	}
+
+	var s3Config *S3Config
+
+	region := gha.GetInput("s3_region")
+	bucket := gha.GetInput("s3_bucket")
+	accessKey := gha.GetInput("s3_access_key")
+	secretKey := gha.GetInput("s3_secret_key")
+
+	if region != "" && bucket != "" && accessKey != "" && secretKey != "" {
+		s3Config = &S3Config{
+			Region:    region,
+			Bucket:    bucket,
+			AccessKey: accessKey,
+			SecretKey: secretKey,
+		}
 	}
 
 	client := http.DefaultClient
@@ -152,6 +178,13 @@ func main() {
 			gha.Fatalf("Failed to upload files: %v", err)
 		}
 
+		for _, matchedFile := range matchedFiles {
+			gha.Infof("uploading %s to S3", matchedFile)
+			if err := uploadToS3(repo, rel.TagName, matchedFile, s3Config); err != nil {
+				gha.Errorf("unable to upload to s3: %s", err)
+			}
+		}
+
 		if oldVersion == nil {
 			gha.Infof("No old version present")
 		} else {
@@ -176,6 +209,45 @@ func main() {
 
 	gha.SetOutput("status", "success")
 	gha.SetOutput("message", releaseMsg)
+}
+
+func uploadToS3(repo, version, filePath string, s3Config *S3Config) error {
+	if s3Config == nil {
+		gha.Infof("S3 is not configured")
+		return nil
+	}
+
+	// Load credentials and create session
+	sess := session.Must(session.NewSession(&aws.Config{
+		Region:      aws.String(s3Config.Region),
+		Credentials: credentials.NewStaticCredentials(s3Config.AccessKey, s3Config.SecretKey, ""),
+	}))
+
+	// Create S3 service client
+	svc := s3.New(sess)
+
+	// Open file
+	file, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open file for S3 upload: %w", err)
+	}
+	defer file.Close()
+
+	// Create input params
+	input := &s3.PutObjectInput{
+		Bucket: aws.String(s3Config.Bucket),
+		Key:    aws.String(repo + "/" + version + "/" + filepath.Base(filePath)),
+		Body:   file,
+	}
+
+	// Upload to S3
+	_, err = svc.PutObject(input)
+	if err != nil {
+		return fmt.Errorf("failed to upload to S3: %w", err)
+	}
+
+	gha.Infof("Successfully uploaded %s to S3 bucket %s", filePath, s3Config.Bucket)
+	return nil
 }
 
 func getFileHashes(files []string) ([]string, error) {
