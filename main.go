@@ -43,6 +43,7 @@ func main() {
 	// ctx.RefName is the branch name, which could be a branch or master, or the tag version
 	files := gha.GetInput("files")
 	apiKey := gha.GetInput("api_key")
+	noRelease := len(gha.GetInput("no_release")) != 0
 	if apiKey == "" {
 		apiKey = os.Getenv("GITHUB_TOKEN")
 	}
@@ -162,7 +163,7 @@ func main() {
 
 		deletePreviousTag := true
 		// deletePreviousTag := len(matchedFiles) == 0
-		rel, err := createOrGetRelease(c, owner, repo, deletePreviousTag, gitea.CreateReleaseOption{
+		rel, err := createOrGetRelease(c, owner, repo, deletePreviousTag, noRelease, gitea.CreateReleaseOption{
 			TagName:      newVersion.String(),
 			IsPrerelease: len(newVersion.Prerelease()) != 0 || len(newVersion.Metadata()) != 0,
 			Title:        newVersion.String(),
@@ -185,22 +186,24 @@ func main() {
 			}
 		}
 
-		if oldVersion == nil {
-			gha.Infof("No old version present")
-		} else {
-			gha.Infof("Trying to remove old version %s", oldVersion)
-			release, _, err := c.GetReleaseByTag(owner, repo, oldVersion.String())
-			if err != nil {
-				gha.Fatalf("Old release not found: %s", oldVersion)
-			}
+		if !noRelease {
+			if oldVersion == nil {
+				gha.Infof("No old version present")
+			} else {
+				gha.Infof("Trying to remove old version %s", oldVersion)
+				release, _, err := c.GetReleaseByTag(owner, repo, oldVersion.String())
+				if err != nil {
+					gha.Fatalf("Old release not found: %s", oldVersion)
+				}
 
-			_, err = c.DeleteRelease(owner, repo, release.ID)
-			if err != nil {
-				gha.Fatalf("unable to delete release %s: %s", oldVersion, err)
-			}
+				_, err = c.DeleteRelease(owner, repo, release.ID)
+				if err != nil {
+					gha.Fatalf("unable to delete release %s: %s", oldVersion, err)
+				}
 
-			if _, err := c.DeleteTag(owner, repo, release.TagName); err != nil {
-				gha.Fatalf("failed to delete the tag %s: %w", release.TagName)
+				if _, err := c.DeleteTag(owner, repo, release.TagName); err != nil {
+					gha.Fatalf("failed to delete the tag %s: %w", release.TagName)
+				}
 			}
 		}
 
@@ -559,9 +562,13 @@ func getFiles(parentDir, files string) ([]string, error) {
 	return fileList, nil
 }
 
-func createOrGetRelease(c *gitea.Client, owner, repo string, deletePreviousTag bool, opts gitea.CreateReleaseOption) (*gitea.Release, error) {
+func createOrGetRelease(c *gitea.Client, owner, repo string, deletePreviousTag, noRelease bool, opts gitea.CreateReleaseOption) (*gitea.Release, error) {
 	// Get the release by tag
 	release, _, err := c.GetReleaseByTag(owner, repo, opts.TagName)
+	if noRelease {
+		return release, err
+	}
+
 	if err == nil {
 		if !deletePreviousTag {
 			release, _, err := c.EditRelease(owner, repo, release.ID, gitea.EditReleaseOption{
