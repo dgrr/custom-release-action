@@ -153,21 +153,9 @@ func justUploadFiles(c *gitea.Client, ctx *gha.GitHubContext, files string, vers
 		gha.Fatalf("failed to get release: %v", err)
 	}
 
-	// Upload files to release
-	if err := uploadFiles(c, owner, repo, release.ID, matchedFiles); err != nil {
-		gha.Fatalf("Failed to upload files: %v", err)
-	}
+	uploadAllFiles(c, owner, repo, release, matchedFiles, s3Config)
 
-	// Upload to S3 if configured
-	for _, matchedFile := range matchedFiles {
-		gha.Infof("uploading %s to S3", matchedFile)
-		if err := uploadToS3(repo, release.TagName, matchedFile, s3Config); err != nil {
-			gha.Errorf("unable to upload to s3: %s", err)
-		}
-	}
-
-	gha.SetOutput("status", "success")
-	gha.SetOutput("message", fmt.Sprintf("Files uploaded to version %s", lastVersion.Version))
+	setOutputs("success", fmt.Sprintf("Files uploaded to version %s", lastVersion.Version), "")
 }
 
 func configureAndUpload(ctx *gha.GitHubContext, prs []*gitea.PullRequest, versions []VersionAndTag, c *gitea.Client, owner, repo string, s3Config *S3Config, files string) {
@@ -176,91 +164,109 @@ func configureAndUpload(ctx *gha.GitHubContext, prs []*gitea.PullRequest, versio
 	newVersion, oldVersion := reconcileVersions(ctx, prs, versions)
 	if newVersion == nil {
 		gha.Infof("No version returned based of off %s, ignoring", ctx.RefName)
-	} else {
-		// TODO:
-		// msg, err := buildVersionSummary(c, prevTag, owner, repo)
-		// if err != nil {
-		// 	gha.Fatalf("making summary: %v", err)
-		// }
-
-		note := newVersion.String()
-
-		data, _, err := c.GetFile(owner, repo, ctx.Ref, "CHANGELOG.md")
-		if err == nil {
-			gha.Infof("Found CHANGELOG. Including")
-			note = string(data)
-		}
-
-		matchedFiles, err := getFiles(ctx.Workspace, files)
-		if err != nil {
-			gha.Fatalf("failed to get files: %v", err)
-		}
-
-		hashes, err := getFileHashes(matchedFiles)
-		if err != nil {
-			gha.Infof("Unable to get hashes: %s", err)
-		} else {
-			note += "\n\n"
-			for i := range hashes {
-				note += fmt.Sprintf("%s: %s\n", filepath.Base(matchedFiles[i]), hashes[i])
-			}
-		}
-
-		note += fmt.Sprintf("\n\nCommit: %s", ctx.SHA)
-
-		gha.Infof("Creating release %s", newVersion)
-		releaseMsg = fmt.Sprintf("Version `%s` has been released (%s)", newVersion, ctx.SHA)
-
-		deletePreviousTag := true
-
-		// deletePreviousTag := len(matchedFiles) == 0
-		rel, err := createOrGetRelease(c, owner, repo, deletePreviousTag, gitea.CreateReleaseOption{
-			TagName:      newVersion.String(),
-			IsPrerelease: len(newVersion.Prerelease()) != 0 || len(newVersion.Metadata()) != 0,
-			Title:        newVersion.String(),
-			Target:       ctx.SHA,
-			Note:         note,
-		})
-		if err != nil {
-			gha.Fatalf("failed to create release: %v", err)
-		}
-
-		gha.Infof("Uploading files to %s", rel.TagName)
-		if err := uploadFiles(c, owner, repo, rel.ID, matchedFiles); err != nil {
-			gha.Fatalf("Failed to upload files: %v", err)
-		}
-
-		for _, matchedFile := range matchedFiles {
-			gha.Infof("uploading %s to S3", matchedFile)
-			if err := uploadToS3(repo, rel.TagName, matchedFile, s3Config); err != nil {
-				gha.Errorf("unable to upload to s3: %s", err)
-			}
-		}
-
-		if oldVersion == nil {
-			gha.Infof("No old version present")
-		} else {
-			gha.Infof("Trying to remove old version %s", oldVersion)
-			release, _, err := c.GetReleaseByTag(owner, repo, oldVersion.String())
-			if err != nil {
-				gha.Fatalf("Old release not found: %s", oldVersion)
-			}
-
-			_, err = c.DeleteRelease(owner, repo, release.ID)
-			if err != nil {
-				gha.Fatalf("unable to delete release %s: %s", oldVersion, err)
-			}
-
-			if _, err := c.DeleteTag(owner, repo, release.TagName); err != nil {
-				gha.Fatalf("failed to delete the tag %s: %w", release.TagName)
-			}
-		}
-
-		gha.SetOutput("release", newVersion.String())
+		setOutputs("success", releaseMsg, "")
+		return
 	}
 
-	gha.SetOutput("status", "success")
-	gha.SetOutput("message", releaseMsg)
+	note := buildReleaseNotes(c, owner, repo, ctx, newVersion)
+	matchedFiles, err := getFiles(ctx.Workspace, files)
+	if err != nil {
+		gha.Fatalf("failed to get files: %v", err)
+	}
+
+	note = appendFileHashes(note, matchedFiles, ctx.SHA)
+
+	releaseMsg = fmt.Sprintf("Version `%s` has been released (%s)", newVersion, ctx.SHA)
+	gha.Infof("Creating release %s", newVersion)
+
+	rel := createRelease(c, owner, repo, newVersion, note, ctx.SHA)
+
+	uploadAllFiles(c, owner, repo, rel, matchedFiles, s3Config)
+
+	if oldVersion != nil {
+		cleanupOldVersion(c, owner, repo, oldVersion)
+	}
+
+	setOutputs("success", releaseMsg, newVersion.String())
+}
+
+func buildReleaseNotes(c *gitea.Client, owner, repo string, ctx *gha.GitHubContext, version *version.Version) string {
+	note := version.String()
+
+	data, _, err := c.GetFile(owner, repo, ctx.Ref, "CHANGELOG.md")
+	if err == nil {
+		gha.Infof("Found CHANGELOG. Including")
+		note = string(data)
+	}
+
+	return note
+}
+
+func appendFileHashes(note string, files []string, sha string) string {
+	hashes, err := getFileHashes(files)
+	if err != nil {
+		gha.Infof("Unable to get hashes: %s", err)
+		return note
+	}
+
+	note += "\n\n"
+	for i := range hashes {
+		note += fmt.Sprintf("%s: %s\n", filepath.Base(files[i]), hashes[i])
+	}
+	note += fmt.Sprintf("\n\nCommit: %s", sha)
+	return note
+}
+
+func createRelease(c *gitea.Client, owner, repo string, version *version.Version, note string, sha string) *gitea.Release {
+	rel, err := createOrGetRelease(c, owner, repo, true, gitea.CreateReleaseOption{
+		TagName:      version.String(),
+		IsPrerelease: len(version.Prerelease()) != 0 || len(version.Metadata()) != 0,
+		Title:        version.String(),
+		Target:       sha,
+		Note:         note,
+	})
+	if err != nil {
+		gha.Fatalf("failed to create release: %v", err)
+	}
+	return rel
+}
+
+func uploadAllFiles(c *gitea.Client, owner, repo string, rel *gitea.Release, files []string, s3Config *S3Config) {
+	gha.Infof("Uploading files to %s", rel.TagName)
+	if err := uploadFiles(c, owner, repo, rel.ID, files); err != nil {
+		gha.Fatalf("Failed to upload files: %v", err)
+	}
+
+	for _, file := range files {
+		gha.Infof("uploading %s to S3", file)
+		if err := uploadToS3(repo, rel.TagName, file, s3Config); err != nil {
+			gha.Errorf("unable to upload to s3: %s", err)
+		}
+	}
+}
+
+func cleanupOldVersion(c *gitea.Client, owner, repo string, oldVersion *version.Version) {
+	gha.Infof("Trying to remove old version %s", oldVersion)
+	release, _, err := c.GetReleaseByTag(owner, repo, oldVersion.String())
+	if err != nil {
+		gha.Fatalf("Old release not found: %s", oldVersion)
+	}
+
+	if _, err = c.DeleteRelease(owner, repo, release.ID); err != nil {
+		gha.Fatalf("unable to delete release %s: %s", oldVersion, err)
+	}
+
+	if _, err := c.DeleteTag(owner, repo, release.TagName); err != nil {
+		gha.Fatalf("failed to delete the tag %s: %w", release.TagName)
+	}
+}
+
+func setOutputs(status, message, release string) {
+	gha.SetOutput("status", status)
+	gha.SetOutput("message", message)
+	if release != "" {
+		gha.SetOutput("release", release)
+	}
 }
 
 func uploadToS3(repo, version, filePath string, s3Config *S3Config) error {
