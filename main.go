@@ -121,6 +121,56 @@ func main() {
 		}
 	}
 
+	if noRelease {
+		justUploadFiles(c, ctx, files, versions, s3Config)
+	} else {
+		configureAndUpload(ctx, prs, versions, c, owner, repo, s3Config, files)
+	}
+}
+
+func justUploadFiles(c *gitea.Client, ctx *gha.GitHubContext, files string, versions []VersionAndTag, s3Config *S3Config) {
+	if len(versions) == 0 {
+		gha.Fatalf("No versions found to upload files to")
+	}
+
+	// Get latest version
+	lastVersion := versions[len(versions)-1]
+
+	gha.Infof("Using latest version %s for file upload", lastVersion.Version)
+
+	owner := ctx.RepositoryOwner
+	repo := strings.Split(ctx.Repository, "/")[1]
+
+	// Get matching files
+	matchedFiles, err := getFiles(ctx.Workspace, files)
+	if err != nil {
+		gha.Fatalf("failed to get files: %v", err)
+	}
+
+	// Get the release
+	release, _, err := c.GetReleaseByTag(owner, repo, lastVersion.Version.String())
+	if err != nil {
+		gha.Fatalf("failed to get release: %v", err)
+	}
+
+	// Upload files to release
+	if err := uploadFiles(c, owner, repo, release.ID, matchedFiles); err != nil {
+		gha.Fatalf("Failed to upload files: %v", err)
+	}
+
+	// Upload to S3 if configured
+	for _, matchedFile := range matchedFiles {
+		gha.Infof("uploading %s to S3", matchedFile)
+		if err := uploadToS3(repo, release.TagName, matchedFile, s3Config); err != nil {
+			gha.Errorf("unable to upload to s3: %s", err)
+		}
+	}
+
+	gha.SetOutput("status", "success")
+	gha.SetOutput("message", fmt.Sprintf("Files uploaded to version %s", lastVersion.Version))
+}
+
+func configureAndUpload(ctx *gha.GitHubContext, prs []*gitea.PullRequest, versions []VersionAndTag, c *gitea.Client, owner, repo string, s3Config *S3Config, files string) {
 	releaseMsg := "Nothing happened :)"
 
 	newVersion, oldVersion := reconcileVersions(ctx, prs, versions)
@@ -132,15 +182,6 @@ func main() {
 		// if err != nil {
 		// 	gha.Fatalf("making summary: %v", err)
 		// }
-
-		if noRelease {
-			gha.Infof("Avoid releasing a new version %v = %v", newVersion, oldVersion)
-			newVersion = oldVersion
-			if newVersion == nil {
-				newVersion = versions[len(versions)-1].Version
-				gha.Infof("old version is nil, assigning latest: %s", newVersion)
-			}
-		}
 
 		note := newVersion.String()
 
@@ -170,21 +211,16 @@ func main() {
 		gha.Infof("Creating release %s", newVersion)
 		releaseMsg = fmt.Sprintf("Version `%s` has been released (%s)", newVersion, ctx.SHA)
 
-		var rel *gitea.Release
 		deletePreviousTag := true
 
-		if noRelease {
-			rel, _, err = c.GetReleaseByTag(owner, repo, oldVersion.String())
-		} else {
-			// deletePreviousTag := len(matchedFiles) == 0
-			rel, err = createOrGetRelease(c, owner, repo, deletePreviousTag, gitea.CreateReleaseOption{
-				TagName:      newVersion.String(),
-				IsPrerelease: len(newVersion.Prerelease()) != 0 || len(newVersion.Metadata()) != 0,
-				Title:        newVersion.String(),
-				Target:       ctx.SHA,
-				Note:         note,
-			})
-		}
+		// deletePreviousTag := len(matchedFiles) == 0
+		rel, err := createOrGetRelease(c, owner, repo, deletePreviousTag, gitea.CreateReleaseOption{
+			TagName:      newVersion.String(),
+			IsPrerelease: len(newVersion.Prerelease()) != 0 || len(newVersion.Metadata()) != 0,
+			Title:        newVersion.String(),
+			Target:       ctx.SHA,
+			Note:         note,
+		})
 		if err != nil {
 			gha.Fatalf("failed to create release: %v", err)
 		}
@@ -201,24 +237,22 @@ func main() {
 			}
 		}
 
-		if !noRelease {
-			if oldVersion == nil {
-				gha.Infof("No old version present")
-			} else {
-				gha.Infof("Trying to remove old version %s", oldVersion)
-				release, _, err := c.GetReleaseByTag(owner, repo, oldVersion.String())
-				if err != nil {
-					gha.Fatalf("Old release not found: %s", oldVersion)
-				}
+		if oldVersion == nil {
+			gha.Infof("No old version present")
+		} else {
+			gha.Infof("Trying to remove old version %s", oldVersion)
+			release, _, err := c.GetReleaseByTag(owner, repo, oldVersion.String())
+			if err != nil {
+				gha.Fatalf("Old release not found: %s", oldVersion)
+			}
 
-				_, err = c.DeleteRelease(owner, repo, release.ID)
-				if err != nil {
-					gha.Fatalf("unable to delete release %s: %s", oldVersion, err)
-				}
+			_, err = c.DeleteRelease(owner, repo, release.ID)
+			if err != nil {
+				gha.Fatalf("unable to delete release %s: %s", oldVersion, err)
+			}
 
-				if _, err := c.DeleteTag(owner, repo, release.TagName); err != nil {
-					gha.Fatalf("failed to delete the tag %s: %w", release.TagName)
-				}
+			if _, err := c.DeleteTag(owner, repo, release.TagName); err != nil {
+				gha.Fatalf("failed to delete the tag %s: %w", release.TagName)
 			}
 		}
 
