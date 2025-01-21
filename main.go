@@ -1,3 +1,4 @@
+// Package main provides functionality for managing releases and version control in a Gitea repository
 package main
 
 import (
@@ -22,32 +23,37 @@ import (
 	gha "github.com/sethvargo/go-githubactions"
 )
 
+// VersionAndTag represents a version number and its associated git tag
 type VersionAndTag struct {
-	Version *version.Version
-	Tag     *gitea.Tag
+	Version *version.Version // Semantic version
+	Tag     *gitea.Tag       // Git tag information
 }
 
+// S3Config contains AWS S3 configuration parameters
 type S3Config struct {
-	Region    string
-	Bucket    string
-	AccessKey string
-	SecretKey string
+	Region    string // AWS region
+	Bucket    string // S3 bucket name
+	AccessKey string // AWS access key ID
+	SecretKey string // AWS secret access key
 }
 
+// main is the entry point that handles release management workflow
 func main() {
+	// Get GitHub Actions context
 	ctx, err := gha.Context()
 	if err != nil {
 		gha.Fatalf("failed to get context: %v", err)
 	}
 
 	// ctx.RefName is the branch name, which could be a branch or master, or the tag version
-	files := gha.GetInput("files")
-	apiKey := gha.GetInput("api_key")
+	files := gha.GetInput("files")    // Files to include in release
+	apiKey := gha.GetInput("api_key") // Gitea API key
 	noRelease := len(gha.GetInput("no_release")) != 0
 	if apiKey == "" {
 		apiKey = os.Getenv("GITHUB_TOKEN")
 	}
 
+	// Initialize S3 config if credentials provided
 	var s3Config *S3Config
 
 	region := gha.GetInput("s3_region")
@@ -66,6 +72,7 @@ func main() {
 
 	client := http.DefaultClient
 
+	// Create Gitea client
 	c, err := gitea.NewClient(ctx.ServerURL, gitea.SetToken(apiKey), gitea.SetHTTPClient(client))
 	if err != nil {
 		gha.Fatalf("failed to create gitea client: %v", err)
@@ -74,7 +81,7 @@ func main() {
 	owner := ctx.RepositoryOwner
 	repo := strings.Split(ctx.Repository, "/")[1]
 
-	// list the repo versions and determine which version this is
+	// List repo versions and determine which version this is
 	tags, _, err := c.ListRepoTags(owner, repo, gitea.ListRepoTagsOptions{
 		ListOptions: gitea.ListOptions{
 			Page:     0,
@@ -85,6 +92,7 @@ func main() {
 		gha.Fatalf("unable to load tags: %v", err)
 	}
 
+	// Get closed pull requests
 	prs, _, err := c.ListRepoPullRequests(owner, repo, gitea.ListPullRequestsOptions{
 		ListOptions: gitea.ListOptions{
 			Page:     0,
@@ -97,6 +105,7 @@ func main() {
 		gha.Fatalf("getting pull requests: %s", err)
 	}
 
+	// Build version list from tags
 	var versions []VersionAndTag
 	for _, tag := range tags {
 		v, err := version.NewVersion(tag.Name)
@@ -110,6 +119,7 @@ func main() {
 		})
 	}
 
+	// Sort versions
 	sort.Slice(versions, func(i, j int) bool {
 		return versions[i].Version.LessThan(versions[j].Version)
 	})
@@ -128,6 +138,7 @@ func main() {
 	}
 }
 
+// justUploadFiles uploads files to the latest existing release without creating a new one
 func justUploadFiles(c *gitea.Client, ctx *gha.GitHubContext, files string, versions []VersionAndTag, s3Config *S3Config) {
 	if len(versions) == 0 {
 		gha.Fatalf("No versions found to upload files to")
@@ -158,6 +169,7 @@ func justUploadFiles(c *gitea.Client, ctx *gha.GitHubContext, files string, vers
 	setOutputs("success", fmt.Sprintf("Files uploaded to version %s", lastVersion.Version), "")
 }
 
+// configureAndUpload creates a new release and uploads files to it
 func configureAndUpload(ctx *gha.GitHubContext, prs []*gitea.PullRequest, versions []VersionAndTag, c *gitea.Client, owner, repo string, s3Config *S3Config, files string) {
 	releaseMsg := "Nothing happened :)"
 
@@ -190,6 +202,7 @@ func configureAndUpload(ctx *gha.GitHubContext, prs []*gitea.PullRequest, versio
 	setOutputs("success", releaseMsg, newVersion.String())
 }
 
+// buildReleaseNotes generates release notes from CHANGELOG.md if available
 func buildReleaseNotes(c *gitea.Client, owner, repo string, ctx *gha.GitHubContext, version *version.Version) string {
 	note := version.String()
 
@@ -202,6 +215,7 @@ func buildReleaseNotes(c *gitea.Client, owner, repo string, ctx *gha.GitHubConte
 	return note
 }
 
+// appendFileHashes adds file hashes to release notes
 func appendFileHashes(note string, files []string, sha string) string {
 	hashes, err := getFileHashes(files)
 	if err != nil {
@@ -217,6 +231,7 @@ func appendFileHashes(note string, files []string, sha string) string {
 	return note
 }
 
+// createRelease creates a new release in the repository
 func createRelease(c *gitea.Client, owner, repo string, version *version.Version, note string, sha string) *gitea.Release {
 	rel, err := createOrGetRelease(c, owner, repo, true, gitea.CreateReleaseOption{
 		TagName:      version.String(),
@@ -231,6 +246,7 @@ func createRelease(c *gitea.Client, owner, repo string, version *version.Version
 	return rel
 }
 
+// uploadAllFiles handles uploading files to both Gitea and S3
 func uploadAllFiles(c *gitea.Client, owner, repo string, rel *gitea.Release, files []string, s3Config *S3Config) {
 	gha.Infof("Uploading files to %s", rel.TagName)
 	if err := uploadFiles(c, owner, repo, rel.ID, files); err != nil {
@@ -245,6 +261,7 @@ func uploadAllFiles(c *gitea.Client, owner, repo string, rel *gitea.Release, fil
 	}
 }
 
+// cleanupOldVersion removes an old release and its tag
 func cleanupOldVersion(c *gitea.Client, owner, repo string, oldVersion *version.Version) {
 	gha.Infof("Trying to remove old version %s", oldVersion)
 	release, _, err := c.GetReleaseByTag(owner, repo, oldVersion.String())
@@ -261,6 +278,7 @@ func cleanupOldVersion(c *gitea.Client, owner, repo string, oldVersion *version.
 	}
 }
 
+// setOutputs sets GitHub Actions outputs
 func setOutputs(status, message, release string) {
 	gha.SetOutput("status", status)
 	gha.SetOutput("message", message)
@@ -269,6 +287,7 @@ func setOutputs(status, message, release string) {
 	}
 }
 
+// uploadToS3 uploads a file to AWS S3
 func uploadToS3(repo, version, filePath string, s3Config *S3Config) error {
 	if s3Config == nil {
 		gha.Infof("S3 is not configured")
@@ -308,6 +327,7 @@ func uploadToS3(repo, version, filePath string, s3Config *S3Config) error {
 	return nil
 }
 
+// getFileHashes calculates SHA1 hashes for the given files
 func getFileHashes(files []string) ([]string, error) {
 	hashes := make([]string, 0)
 	for _, file := range files {
@@ -332,19 +352,24 @@ func getFileHashes(files []string) ([]string, error) {
 	return hashes, nil
 }
 
+// reconcileVersions determines the appropriate version number based on the current state
 func reconcileVersions(ctx *gha.GitHubContext, prs []*gitea.PullRequest, versions []VersionAndTag) (*version.Version, *version.Version) {
+	// Get the branch/ref name we're working with
 	refName := ctx.RefName
 	gha.Infof("Determining the version based of off %s: %v", refName, versions)
 
-	// commit of a merge
+	// Track if this commit is from a merged branch
 	var mergeBranch *string
 
+	// Check if there are any commits in the event
 	if commits, ok := ctx.Event["commits"]; ok {
 		commits := commits.([]interface{})
+		// Loop through commits looking for merge commits
 		for _, commit := range commits {
 			commit := commit.(map[string]interface{})
 			if commitId, ok := commit["id"]; ok {
 				gha.Infof("Checking %d pull requests", len(prs))
+				// Check if this commit matches a merged PR
 				for _, pr := range prs {
 					if pr.MergedCommitID != nil {
 						gha.Infof("Checking pull request: %v == %s", *pr.MergedCommitID, commitId)
@@ -363,34 +388,38 @@ func reconcileVersions(ctx *gha.GitHubContext, prs []*gitea.PullRequest, version
 	}
 
 	gha.Infof("Removing branched versions from %v", versions)
-	// leave only the stable versions
+	// Filter out versions with metadata to get only stable versions
 	versions = slices.DeleteFunc(versions, func(version VersionAndTag) bool {
 		return len(version.Version.Metadata()) != 0
 	})
 
 	gha.Infof("After removing branched versions %v", versions)
 
+	// Handle different cases based on the branch name
 	switch refName {
 	case "master", "main":
+		// If no versions exist, create initial alpha version
 		if len(versions) == 0 {
 			gha.Infof("No existing version, creating one")
 			return version.Must(version.NewVersion("0.1.0-alpha")), nil
 		}
 
 		lastVersion := versions[len(versions)-1]
+		// Check if last version was a pre-release
 		if len(lastVersion.Version.Prerelease()) != 0 {
 			gha.Infof(
 				"Previous version %s is a pre-release, checking if we are merging",
 				lastVersion.Version,
 			)
 
+			// Handle merge case
 			if mergeBranch != nil {
 				gha.Infof(
 					"%s is a merge commit of %s",
 					lastVersion.Version, *mergeBranch,
 				)
 
-				// look for a version containing the branch name
+				// Find version with matching branch metadata
 				var oldVersion *version.Version
 				for _, versionAndTag := range versions {
 					if versionAndTag.Version.Metadata() == normalizeBranchName(*mergeBranch) {
@@ -413,12 +442,12 @@ func reconcileVersions(ctx *gha.GitHubContext, prs []*gitea.PullRequest, version
 			return lastVersion.Version, nil
 		}
 
-		// because the previous is an absolute release (specific version) we need to increase the alpha
+		// Increment version for stable release
 		newVersion := increaseVersion(lastVersion.Version)
 		if mergeBranch != nil {
 			gha.Infof("Merge committed straight to master without pre-releases, creating new version")
 
-			// look for a version containing the branch name
+			// Find version with matching branch metadata
 			var oldVersion *version.Version
 			for _, versionAndTag := range versions {
 				gha.Infof("Checking %s <> %s", versionAndTag.Version.Metadata(), normalizeBranchName(*mergeBranch))
@@ -437,19 +466,18 @@ func reconcileVersions(ctx *gha.GitHubContext, prs []*gitea.PullRequest, version
 			version.NewVersion(
 				fmt.Sprintf("%s-alpha", newVersion))), nil
 	default:
+		// Check if refName is already a version
 		_, err := version.NewVersion(refName)
 		if err == nil {
 			gha.Infof("A new version has been released, ignore")
-			// it's a new version
 			return nil, nil
 		}
 
-		// not a new version, someone pushed to a branch
-		// a version must exist if someone has a branch
+		// Handle branch commits
 		branchName := normalizeBranchName(refName)
 		gha.Infof("Committed to a branch, releasing a new version with branch metadata: %s", branchName)
 
-		// look for a version containing the branch name
+		// Look for existing version with this branch metadata
 		for _, versionAndTag := range versions {
 			if versionAndTag.Version.Metadata() == branchName {
 				gha.Infof("Found existing version with metadata %s, using that", branchName)
@@ -457,21 +485,23 @@ func reconcileVersions(ctx *gha.GitHubContext, prs []*gitea.PullRequest, version
 			}
 		}
 
+		// Create new version with branch metadata
 		branchVersion := versions[len(versions)-1].Version
 		gha.Infof("Version not found for branch %s, using %s", branchName, branchVersion)
 
 		return version.Must(
 			version.NewVersion(
 				fmt.Sprintf("%s+%s", branchVersion, branchName))), nil
-		// ...
 	}
 }
 
+// normalizeBranchName converts a branch name to a standardized format
 func normalizeBranchName(orig string) string {
 	replacer := strings.NewReplacer("_", "-", "/", "-")
 	return replacer.Replace(orig)
 }
 
+// increaseVersion increments the version number
 func increaseVersion(v *version.Version) *version.Version {
 	segments := v.Segments()
 	for i := len(segments) - 1; i > 0; i-- {
@@ -490,6 +520,7 @@ func increaseVersion(v *version.Version) *version.Version {
 	)
 }
 
+// buildVersionSummary generates a summary of changes between versions
 func buildVersionSummary(c *gitea.Client, prevTag *gitea.Tag, owner, repo string) (string, error) {
 	msg := "Commits:\n\n"
 	page := 0
@@ -562,6 +593,7 @@ outer:
 	return msg, nil
 }
 
+// getDirFiles recursively gets all files in a directory
 func getDirFiles(dir string) ([]string, error) {
 	d, err := os.Open(dir)
 	if err != nil {
@@ -590,6 +622,7 @@ func getDirFiles(dir string) ([]string, error) {
 	return res, nil
 }
 
+// getFiles gets a list of files matching the given patterns
 func getFiles(parentDir, files string) ([]string, error) {
 	var fileList []string
 	lines := strings.Split(files, "\n")
@@ -618,6 +651,7 @@ func getFiles(parentDir, files string) ([]string, error) {
 	return fileList, nil
 }
 
+// createOrGetRelease creates a new release or gets an existing one
 func createOrGetRelease(c *gitea.Client, owner, repo string, deletePreviousTag bool, opts gitea.CreateReleaseOption) (*gitea.Release, error) {
 	// Get the release by tag
 	release, _, err := c.GetReleaseByTag(owner, repo, opts.TagName)
@@ -657,6 +691,7 @@ func createOrGetRelease(c *gitea.Client, owner, repo string, deletePreviousTag b
 	return release, nil
 }
 
+// uploadFiles handles uploading files to a release
 func uploadFiles(c *gitea.Client, owner, repo string, releaseID int64, files []string) error {
 	attachments, _, err := c.ListReleaseAttachments(owner, repo, releaseID, gitea.ListReleaseAttachmentsOptions{})
 	if err != nil {
