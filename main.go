@@ -377,6 +377,7 @@ func reconcileVersions(ctx *gha.GitHubContext, prs []*gitea.PullRequest, version
 			// look for a version containing the branch name
 			var oldVersion *version.Version
 			for _, versionAndTag := range versions {
+				gha.Infof("Checking %s <> %s", versionAndTag, normalizeBranchName(*mergeBranch))
 				if versionAndTag.Version.Metadata() == normalizeBranchName(*mergeBranch) {
 					oldVersion = versionAndTag.Version
 					break
