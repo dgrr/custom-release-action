@@ -137,8 +137,8 @@ func main() {
 			gha.Infof("Avoid releasing a new version %v = %v", newVersion, oldVersion)
 			newVersion = oldVersion
 			if newVersion == nil {
-				gha.Infof("old version is nil, assigning latest")
 				newVersion = versions[len(versions)-1].Version
+				gha.Infof("old version is nil, assigning latest: %s", newVersion)
 			}
 		}
 
