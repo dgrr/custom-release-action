@@ -133,6 +133,11 @@ func main() {
 		// 	gha.Fatalf("making summary: %v", err)
 		// }
 
+		if noRelease {
+			gha.Infof("Avoid releasing a new version %v = %v", newVersion, oldVersion)
+			newVersion = oldVersion
+		}
+
 		note := newVersion.String()
 
 		data, _, err := c.GetFile(owner, repo, ctx.Ref, "CHANGELOG.md")
@@ -161,15 +166,21 @@ func main() {
 		gha.Infof("Creating release %s", newVersion)
 		releaseMsg = fmt.Sprintf("Version `%s` has been released (%s)", newVersion, ctx.SHA)
 
+		var rel *gitea.Release
 		deletePreviousTag := true
-		// deletePreviousTag := len(matchedFiles) == 0
-		rel, err := createOrGetRelease(c, owner, repo, deletePreviousTag, noRelease, gitea.CreateReleaseOption{
-			TagName:      newVersion.String(),
-			IsPrerelease: len(newVersion.Prerelease()) != 0 || len(newVersion.Metadata()) != 0,
-			Title:        newVersion.String(),
-			Target:       ctx.SHA,
-			Note:         note,
-		})
+
+		if noRelease {
+			rel, _, err = c.GetReleaseByTag(owner, repo, oldVersion.String())
+		} else {
+			// deletePreviousTag := len(matchedFiles) == 0
+			rel, err = createOrGetRelease(c, owner, repo, deletePreviousTag, gitea.CreateReleaseOption{
+				TagName:      newVersion.String(),
+				IsPrerelease: len(newVersion.Prerelease()) != 0 || len(newVersion.Metadata()) != 0,
+				Title:        newVersion.String(),
+				Target:       ctx.SHA,
+				Note:         note,
+			})
+		}
 		if err != nil {
 			gha.Fatalf("failed to create release: %v", err)
 		}
@@ -562,13 +573,9 @@ func getFiles(parentDir, files string) ([]string, error) {
 	return fileList, nil
 }
 
-func createOrGetRelease(c *gitea.Client, owner, repo string, deletePreviousTag, noRelease bool, opts gitea.CreateReleaseOption) (*gitea.Release, error) {
+func createOrGetRelease(c *gitea.Client, owner, repo string, deletePreviousTag bool, opts gitea.CreateReleaseOption) (*gitea.Release, error) {
 	// Get the release by tag
 	release, _, err := c.GetReleaseByTag(owner, repo, opts.TagName)
-	if noRelease {
-		return release, err
-	}
-
 	if err == nil {
 		if !deletePreviousTag {
 			release, _, err := c.EditRelease(owner, repo, release.ID, gitea.EditReleaseOption{
