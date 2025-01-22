@@ -348,7 +348,7 @@ func uploadToS3(repo, version, filePath string, s3Config *S3Config) error {
 		return fmt.Errorf("failed to upload to S3: %w", err)
 	}
 
-	gha.Infof("Successfully uploaded %s to S3 bucket s3://%s/%s", filePath, input.Bucket, input.Key)
+	gha.Infof("Successfully uploaded %s to S3 bucket s3://%s/%s", filePath, *input.Bucket, *input.Key)
 	return nil
 }
 
