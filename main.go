@@ -164,6 +164,31 @@ func justUploadFiles(c *gitea.Client, ctx *gha.GitHubContext, files string, vers
 		gha.Fatalf("failed to get release: %v", err)
 	}
 
+	// Get current release note
+	currentNote := release.Note
+
+	// Get file hashes and append if not already present
+	hashes, err := getFileHashes(matchedFiles)
+	if err == nil {
+		for i, file := range matchedFiles {
+			hashLine := fmt.Sprintf("%s: %s", filepath.Base(file), hashes[i])
+			if !strings.Contains(currentNote, hashLine) {
+				if !strings.HasSuffix(currentNote, "\n") {
+					currentNote += "\n"
+				}
+				currentNote += hashLine + "\n"
+			}
+		}
+
+		// Update release with new notes
+		_, _, err = c.EditRelease(owner, repo, release.ID, gitea.EditReleaseOption{
+			Note: currentNote,
+		})
+		if err != nil {
+			gha.Errorf("failed to update release notes with hashes: %v", err)
+		}
+	}
+
 	uploadAllFiles(c, owner, repo, release, matchedFiles, s3Config)
 
 	setOutputs("success", fmt.Sprintf("Files uploaded to version %s", lastVersion.Version), "")
