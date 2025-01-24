@@ -132,22 +132,27 @@ func main() {
 	}
 
 	if noRelease {
-		justUploadFiles(c, ctx, files, versions, s3Config)
+		justUploadFiles(c, ctx, prs, files, versions, s3Config)
 	} else {
 		configureAndUpload(ctx, prs, versions, c, owner, repo, s3Config, files)
 	}
 }
 
 // justUploadFiles uploads files to the latest existing release without creating a new one
-func justUploadFiles(c *gitea.Client, ctx *gha.GitHubContext, files string, versions []VersionAndTag, s3Config *S3Config) {
+func justUploadFiles(c *gitea.Client, ctx *gha.GitHubContext, prs []*gitea.PullRequest, files string, versions []VersionAndTag, s3Config *S3Config) {
 	if len(versions) == 0 {
 		gha.Fatalf("No versions found to upload files to")
 	}
 
 	// Get latest version
-	lastVersion := versions[len(versions)-1]
+	newVersion, _ := reconcileVersions(ctx, prs, versions)
+	if newVersion == nil {
+		gha.Infof("No version returned based of off %s, ignoring", ctx.RefName)
+		setOutputs("success", "Nothing happened :)", "")
+		return
+	}
 
-	gha.Infof("Using latest version %s for file upload", lastVersion.Version)
+	gha.Infof("Using latest version %s for file upload", newVersion)
 
 	owner := ctx.RepositoryOwner
 	repo := strings.Split(ctx.Repository, "/")[1]
@@ -159,7 +164,7 @@ func justUploadFiles(c *gitea.Client, ctx *gha.GitHubContext, files string, vers
 	}
 
 	// Get the release
-	release, _, err := c.GetReleaseByTag(owner, repo, lastVersion.Version.String())
+	release, _, err := c.GetReleaseByTag(owner, repo, newVersion.String())
 	if err != nil {
 		gha.Fatalf("failed to get release: %v", err)
 	}
@@ -191,7 +196,7 @@ func justUploadFiles(c *gitea.Client, ctx *gha.GitHubContext, files string, vers
 
 	uploadAllFiles(c, owner, repo, release, matchedFiles, s3Config)
 
-	setOutputs("success", fmt.Sprintf("Files uploaded to version %s", lastVersion.Version), "")
+	setOutputs("success", fmt.Sprintf("Files uploaded to version %s", newVersion), "")
 }
 
 // configureAndUpload creates a new release and uploads files to it
