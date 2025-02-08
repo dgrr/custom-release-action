@@ -155,6 +155,11 @@ func justUploadFiles(c *gitea.Client, ctx *gha.GitHubContext, prs []*gitea.PullR
 	if oldVersion != nil {
 		gha.Infof("Because there's an old version defined we are going to use it for the release %s -> %s", newVersion, oldVersion)
 		newVersion = oldVersion
+	} else {
+		if len(newVersion.Prerelease()) == 0 {
+			gha.Infof("Cannot commit to a new release, keeping previous (not %s)", newVersion)
+			newVersion = decreaseVersion(newVersion)
+		}
 	}
 
 	gha.Infof("Using latest version %s for file upload", newVersion)
@@ -546,6 +551,24 @@ func increaseVersion(v *version.Version) *version.Version {
 		}
 
 		segments[i] = 0
+	}
+
+	return version.Must(
+		version.NewVersion(
+			fmt.Sprintf("%d.%d.%d", segments[0], segments[1], segments[2]),
+		),
+	)
+}
+
+func decreaseVersion(v *version.Version) *version.Version {
+	segments := v.Segments()
+	for i := len(segments) - 1; i > 0; i-- {
+		segments[i] -= 1
+		if segments[i] <= 0 {
+			break
+		}
+
+		segments[i] = 9
 	}
 
 	return version.Must(
