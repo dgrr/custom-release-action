@@ -145,11 +145,16 @@ func justUploadFiles(c *gitea.Client, ctx *gha.GitHubContext, prs []*gitea.PullR
 	}
 
 	// Get latest version
-	newVersion, _ := reconcileVersions(ctx, prs, versions)
+	newVersion, oldVersion := reconcileVersions(ctx, prs, versions)
 	if newVersion == nil {
 		gha.Infof("No version returned based of off %s, ignoring", ctx.RefName)
 		setOutputs("success", "Nothing happened :)", "")
 		return
+	}
+
+	if oldVersion != nil {
+		gha.Infof("Because there's an old version defined we are going to use it for the release %s -> %s", newVersion, oldVersion)
+		newVersion = oldVersion
 	}
 
 	gha.Infof("Using latest version %s for file upload", newVersion)
