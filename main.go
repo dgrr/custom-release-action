@@ -562,9 +562,9 @@ func increaseVersion(v *version.Version) *version.Version {
 
 func decreaseVersion(v *version.Version) *version.Version {
 	segments := v.Segments()
-	for i := len(segments) - 1; i > 0; i-- {
+	for i := len(segments) - 1; i >= 0; i-- {
 		segments[i] -= 1
-		if segments[i] <= 0 {
+		if segments[i] >= 0 {
 			break
 		}
 
