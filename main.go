@@ -156,7 +156,7 @@ func justUploadFiles(c *gitea.Client, ctx *gha.GitHubContext, prs []*gitea.PullR
 		gha.Infof("Because there's an old version defined we are going to use it for the release %s -> %s", newVersion, oldVersion)
 		newVersion = oldVersion
 	} else {
-		if len(newVersion.Prerelease()) == 0 {
+		if len(newVersion.Metadata()) == 0 {
 			gha.Infof("Cannot commit to a new release, keeping previous (not %s)", newVersion)
 			newVersion = decreaseVersion(newVersion)
 		}
